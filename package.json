@@ -4,9 +4,9 @@
   "description": "S3-compatible API gateway for WebDAV storage using Cloudflare Pages Functions",
   "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev",
-    "deploy": "wrangler pages deploy",
-    "build": "tsc"
+    "dev": "wrangler pages dev ./public",
+    "build": "tsc --noEmit",
+    "deploy": "wrangler pages deploy ./public"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

@@ -67,7 +67,7 @@ npm run deploy
 3. 点击 **Connect to Git**，选择你 Fork 的 `webdav-s3` 仓库。
 4. **配置构建设置 (Build settings)**:
    - **Framework preset**: `None`
-   - **Build command**: `npm run build` (可选，用于类型检查)
+   - **Build command**: _(留空或填 `npm run build`)_
    - **Build output directory**: `public`
 5. **设置环境变量 (Environment variables)**:
    - 点击 "Environment variables (advanced)" 展开
@@ -79,6 +79,8 @@ npm run deploy
      - `S3_SECRET_ACCESS_KEY`: 自行设置一个 Secret Key (例如: `my-secret-key`)
      - `S3_REGION`: `us-east-1` (或你喜欢的区域代码)
 6. 点击 **Save and Deploy**。
+
+> ⚠️ **注意**: 不要设置 Deploy command！Cloudflare Pages 会自动识别 `functions/` 目录并部署 Functions。
 
 部署完成后，你会获得一个 `*.pages.dev` 的域名，这就是你的 S3 API Endpoint。
 
