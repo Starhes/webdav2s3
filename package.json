@@ -1,0 +1,16 @@
+{
+  "name": "webdav-s3-gateway",
+  "version": "1.0.0",
+  "description": "S3-compatible API gateway for WebDAV storage using Cloudflare Pages Functions",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler pages dev",
+    "deploy": "wrangler pages deploy",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.99.0"
+  }
+}

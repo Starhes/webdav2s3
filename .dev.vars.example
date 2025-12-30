@@ -1,0 +1,9 @@
+# Copy this file to .dev.vars and fill in your values
+# This file is used for local development with wrangler pages dev
+
+WEBDAV_URL=https://your-webdav-server.com/dav/
+WEBDAV_USERNAME=your-username
+WEBDAV_PASSWORD=your-password
+S3_ACCESS_KEY_ID=your-custom-access-key-id
+S3_SECRET_ACCESS_KEY=your-custom-secret-access-key
+S3_REGION=us-east-1
