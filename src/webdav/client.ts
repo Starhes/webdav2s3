@@ -123,7 +123,7 @@ export class WebDAVClient {
         }
 
         const xml = await response.text();
-        return parsePropfindResponse(xml, path);
+        return parsePropfindResponse(xml);
     }
 
     /**

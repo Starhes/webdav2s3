@@ -94,22 +94,30 @@ async function getSigningKey(
 
 /**
  * Create canonical request string
+ * Format:
+ * HTTPMethod + '\n' +
+ * CanonicalURI + '\n' +
+ * CanonicalQueryString + '\n' +
+ * CanonicalHeaders + '\n' +
+ * SignedHeaders + '\n' +
+ * HashedPayload
+ *
+ * Note: CanonicalHeaders already ends with '\n'
  */
 async function createCanonicalRequest(
     method: string,
     canonicalUri: string,
     canonicalQueryString: string,
-    canonicalHeaders: string,
+    canonicalHeaders: string,  // Must end with '\n'
     signedHeaders: string,
     payloadHash: string
 ): Promise<string> {
+    // canonicalHeaders already ends with \n, so we don't need empty string
     return [
         method,
         canonicalUri,
         canonicalQueryString,
-        canonicalHeaders,
-        '',
-        signedHeaders,
+        canonicalHeaders + signedHeaders,
         payloadHash,
     ].join('\n');
 }
@@ -125,6 +133,29 @@ async function createStringToSign(
 ): Promise<string> {
     const hashedCanonicalRequest = await sha256(canonicalRequest);
     return [algorithm, requestDateTime, credentialScope, hashedCanonicalRequest].join('\n');
+}
+
+/**
+ * Convert RFC 7231 date format to AWS ISO 8601 format
+ * Input: "Wed, 01 Jan 2020 00:00:00 GMT"
+ * Output: "20200101T000000Z"
+ */
+function convertToAwsDateFormat(dateStr: string): string | null {
+    try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) {
+            return null;
+        }
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+        return `${year}${month}${day}T${hours}${minutes}${seconds}Z`;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -151,7 +182,7 @@ export async function verifySignature(
     request: Request,
     env: Env,
     bodyHash?: string
-): Promise<{ valid: boolean; error?: string }> {
+): Promise<{ valid: boolean; error?: string; debug?: Record<string, string> }> {
     const authHeader = request.headers.get('Authorization');
     if (!authHeader) {
         return { valid: false, error: 'Missing Authorization header' };
@@ -180,24 +211,42 @@ export async function verifySignature(
     const url = new URL(request.url);
 
     // Get x-amz-date or Date header
+    // x-amz-date is in ISO 8601 basic format: YYYYMMDD'T'HHMMSS'Z'
+    // Date header is in RFC 7231 format: "Wed, 01 Jan 2020 00:00:00 GMT"
     const amzDate = request.headers.get('x-amz-date');
     const dateHeader = request.headers.get('date');
-    const requestDateTime = amzDate || dateHeader;
+    
+    let requestDateTime: string | null = null;
+    
+    if (amzDate) {
+        // x-amz-date is already in the correct format
+        requestDateTime = amzDate;
+    } else if (dateHeader) {
+        // Convert Date header to AWS format
+        requestDateTime = convertToAwsDateFormat(dateHeader);
+        if (!requestDateTime) {
+            return { valid: false, error: 'Invalid Date header format' };
+        }
+    }
 
     if (!requestDateTime) {
         return { valid: false, error: 'Missing date header' };
     }
 
     // Build canonical headers
+    // AWS SigV4 spec: lowercase header names, trim and collapse multiple spaces in values
     const canonicalHeadersList: string[] = [];
     for (const headerName of components.signedHeaders) {
         const headerValue = request.headers.get(headerName);
         if (headerValue === null) {
             return { valid: false, error: `Missing signed header: ${headerName}` };
         }
-        canonicalHeadersList.push(`${headerName.toLowerCase()}:${headerValue.trim()}`);
+        // Trim leading/trailing whitespace and collapse multiple spaces into one
+        const normalizedValue = headerValue.trim().replace(/\s+/g, ' ');
+        canonicalHeadersList.push(`${headerName.toLowerCase()}:${normalizedValue}`);
     }
-    const canonicalHeaders = canonicalHeadersList.join('\n');
+    // Each header line must end with \n, so join with \n and add trailing \n
+    const canonicalHeaders = canonicalHeadersList.join('\n') + '\n';
     const signedHeadersStr = components.signedHeaders.join(';');
 
     // Build canonical URI
@@ -248,7 +297,44 @@ export async function verifySignature(
     const calculatedSignature = arrayBufferToHex(signatureBuffer);
 
     if (calculatedSignature !== components.signature) {
-        return { valid: false, error: 'Signature mismatch' };
+        // Debug logging for signature mismatch
+        console.log('=== Signature Verification Debug ===');
+        console.log('Request Method:', request.method);
+        console.log('Request URL:', request.url);
+        console.log('Canonical URI:', canonicalUri);
+        console.log('Canonical Query String:', queryParams);
+        console.log('Canonical Headers:', canonicalHeaders);
+        console.log('Signed Headers:', signedHeadersStr);
+        console.log('Payload Hash:', payloadHash);
+        console.log('Canonical Request:');
+        console.log(canonicalRequest);
+        console.log('---');
+        console.log('String to Sign:');
+        console.log(stringToSign);
+        console.log('---');
+        console.log('Expected Signature:', components.signature);
+        console.log('Calculated Signature:', calculatedSignature);
+        console.log('=== End Debug ===');
+
+        const debugInfo = {
+            method: request.method,
+            url: request.url,
+            canonicalUri,
+            queryParams,
+            canonicalHeaders: canonicalHeaders.replace(/\n/g, '\\n'),
+            signedHeaders: signedHeadersStr,
+            payloadHash,
+            canonicalRequest: canonicalRequest.replace(/\n/g, '\\n'),
+            stringToSign: stringToSign.replace(/\n/g, '\\n'),
+            expectedSignature: components.signature,
+            calculatedSignature,
+        };
+
+        return {
+            valid: false,
+            error: `Signature mismatch`,
+            debug: debugInfo
+        };
     }
 
     return { valid: true };

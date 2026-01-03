@@ -1,6 +1,22 @@
 import { ListBucketResult, S3Object, S3CommonPrefix } from '../types';
 
 /**
+ * Normalize ETag to ensure it has quotes (S3 format)
+ * If ETag already has quotes, return as-is; otherwise add quotes
+ */
+function normalizeEtag(etag: string): string {
+    if (!etag) {
+        return '""';
+    }
+    // If already quoted, return as-is
+    if (etag.startsWith('"') && etag.endsWith('"')) {
+        return etag;
+    }
+    // Add quotes
+    return `"${etag}"`;
+}
+
+/**
  * Generate S3 ListBucketResult XML response
  */
 export function generateListBucketResultXml(result: ListBucketResult): string {
@@ -10,7 +26,7 @@ export function generateListBucketResultXml(result: ListBucketResult): string {
     <Contents>
       <Key>${escapeXml(obj.key)}</Key>
       <LastModified>${obj.lastModified.toISOString()}</LastModified>
-      <ETag>"${escapeXml(obj.etag)}"</ETag>
+      <ETag>${escapeXml(normalizeEtag(obj.etag))}</ETag>
       <Size>${obj.size}</Size>
       <StorageClass>${obj.storageClass}</StorageClass>
     </Contents>`
@@ -61,7 +77,7 @@ export function generateCopyObjectResultXml(etag: string, lastModified: Date): s
     return `<?xml version="1.0" encoding="UTF-8"?>
 <CopyObjectResult>
   <LastModified>${lastModified.toISOString()}</LastModified>
-  <ETag>"${escapeXml(etag)}"</ETag>
+  <ETag>${escapeXml(normalizeEtag(etag))}</ETag>
 </CopyObjectResult>`;
 }
 

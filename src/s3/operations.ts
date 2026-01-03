@@ -1,6 +1,7 @@
 import { Env, S3RequestContext, S3Operation, S3Object, ListBucketResult } from '../types';
 import { WebDAVClient } from '../webdav/client';
 import { generateListBucketResultXml, S3Errors } from './xml';
+import { createPresignedUrl } from './presign';
 
 /**
  * Parse S3 request to extract bucket, key, and operation
@@ -136,7 +137,8 @@ async function handleDeleteObject(
     const response = await client.delete(webdavPath);
 
     // 204 No Content or 404 Not Found are both acceptable for delete
-    if (!response.ok && response.status !== 204 && response.status !== 404) {
+    // Note: response.ok is true for 2xx status codes, so 204 is already covered by response.ok
+    if (!response.ok && response.status !== 404) {
         return S3Errors.InternalError(`WebDAV DELETE failed: ${response.status}`);
     }
 
@@ -222,8 +224,19 @@ async function handleListBucket(
         // Calculate the key relative to the root
         let key = resource.href;
 
-        // Remove base WebDAV path if present
-        const urlPath = new URL(ctx.url.origin + resource.href).pathname;
+        // Handle href - it could be a full URL, absolute path, or relative path
+        let urlPath: string;
+        if (resource.href.startsWith('http://') || resource.href.startsWith('https://')) {
+            // Full URL
+            urlPath = new URL(resource.href).pathname;
+        } else if (resource.href.startsWith('/')) {
+            // Absolute path
+            urlPath = resource.href;
+        } else {
+            // Relative path - prepend base URL origin
+            urlPath = new URL(ctx.url.origin + '/' + resource.href).pathname;
+        }
+        
         key = urlPath.startsWith('/') ? urlPath.slice(1) : urlPath;
 
         // Remove bucket name from path if present
@@ -310,6 +323,76 @@ async function handleHeadBucket(
 }
 
 /**
+ * Handle GetObjectStream operation - returns the object as a stream
+ */
+async function handleGetObjectStream(
+    ctx: S3RequestContext,
+    client: WebDAVClient
+): Promise<Response> {
+    const webdavPath = buildWebDAVPath(ctx.bucket, ctx.key);
+    const response = await client.get(webdavPath);
+
+    if (!response.ok) {
+        if (response.status === 404) {
+            return S3Errors.NoSuchKey(ctx.key);
+        }
+        return S3Errors.InternalError(`WebDAV error: ${response.status}`);
+    }
+
+    // Forward response with S3-compatible headers
+    const headers = new Headers();
+    headers.set('Content-Type', response.headers.get('Content-Type') || 'application/octet-stream');
+    headers.set('Content-Length', response.headers.get('Content-Length') || '0');
+    headers.set('x-amz-request-id', crypto.randomUUID());
+
+    const lastModified = response.headers.get('Last-Modified');
+    if (lastModified) {
+        headers.set('Last-Modified', lastModified);
+    }
+
+    const etag = response.headers.get('ETag');
+    if (etag) {
+        headers.set('ETag', etag);
+    }
+
+    return new Response(response.body, {
+        status: 200,
+        headers,
+    });
+}
+
+/**
+ * Handle CreatePresignedGetUrl operation - generates a presigned URL for GET
+ */
+async function handleCreatePresignedGetUrl(
+    ctx: S3RequestContext,
+    env: Env
+): Promise<Response> {
+    const expiresIn = parseInt(ctx.url.searchParams.get('Expires') || '86400', 10); // Default 24 hours
+    
+    try {
+        const presignedUrl = await createPresignedUrl(
+            env.S3_ACCESS_KEY_ID,
+            env.S3_SECRET_ACCESS_KEY,
+            env.S3_REGION,
+            ctx.bucket,
+            ctx.key,
+            expiresIn
+        );
+
+        return new Response(presignedUrl, {
+            status: 200,
+            headers: {
+                'Content-Type': 'text/plain',
+                'x-amz-request-id': crypto.randomUUID(),
+            },
+        });
+    } catch (error: any) {
+        return S3Errors.InternalError(`Failed to create presigned URL: ${error.message}`);
+    }
+}
+
+/**
  * Route S3 operation to appropriate handler
  */
 export async function handleS3Operation(
@@ -331,6 +414,10 @@ export async function handleS3Operation(
             return handleListBucket(ctx, client);
         case 'HeadBucket':
             return handleHeadBucket(ctx, client);
+        case 'GetObjectStream':
+            return handleGetObjectStream(ctx, client);
+        case 'CreatePresignedGetUrl':
+            return handleCreatePresignedGetUrl(ctx, env);
         default:
             return S3Errors.MethodNotAllowed(ctx.method);
     }

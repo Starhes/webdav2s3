@@ -33,6 +33,8 @@ export type S3Operation =
     | 'HeadObject'
     | 'ListBucket'
     | 'HeadBucket'
+    | 'GetObjectStream'
+    | 'CreatePresignedGetUrl'
     | 'Unknown';
 
 /**

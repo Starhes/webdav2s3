@@ -3,7 +3,7 @@ import { WebDAVResource } from '../types';
 /**
  * Parse WebDAV PROPFIND XML response
  */
-export function parsePropfindResponse(xml: string, baseHref: string): WebDAVResource[] {
+export function parsePropfindResponse(xml: string): WebDAVResource[] {
     const resources: WebDAVResource[] = [];
 
     // Simple regex-based XML parsing for WebDAV responses

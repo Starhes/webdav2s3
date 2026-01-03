@@ -16,6 +16,8 @@
 - ✅ HeadObject (获取文件元数据)
 - ✅ ListBucket (列出文件)
 - ✅ HeadBucket (检查存储桶)
+- ✅ GetObjectStream (流式下载大文件)
+- ✅ Presigned URL (生成预签名分享链接)
 
 ## 快速开始
 
@@ -121,16 +123,17 @@ aws s3 rm s3://bucket/test.txt --endpoint-url $ENDPOINT
 ```
 webdav-s3/
 ├── functions/
-│   └── [[path]].ts          # Pages Functions 入口
+│   └── [[path]].ts          # Pages Functions 入口 (边缘计算)
 ├── src/
 │   ├── s3/
-│   │   ├── signature.ts     # AWS Sig V4 验证
+│   │   ├── signature.ts     # AWS Sig V4 签名验证
 │   │   ├── operations.ts    # S3 操作实现
+│   │   ├── presign.ts       # 预签名 URL 生成
 │   │   └── xml.ts           # S3 XML 响应
 │   ├── webdav/
 │   │   ├── client.ts        # WebDAV 客户端
 │   │   └── parser.ts        # XML 解析
-│   ├── config.ts            # 配置
+│   ├── config.ts            # 配置验证
 │   └── types.ts             # 类型定义
 ├── public/
 │   └── index.html           # 落地页
@@ -139,11 +142,42 @@ webdav-s3/
 └── wrangler.toml
 ```
 
+## 架构说明
+
+本项目部署在 **Cloudflare Pages** 上，利用 **Pages Functions** 实现边缘计算：
+
+```
+用户请求 → Cloudflare 边缘节点 → Pages Functions → WebDAV 服务器
+              ↓
+         AWS Signature V4 认证
+              ↓
+         S3 API 转换为 WebDAV
+```
+
+**优势**：
+- 全球分布式边缘节点，低延迟访问
+- 免费额度包含每月 100,000 次请求
+- 自动缩放，无需服务器管理
+- 支持 AWS Signature V4 签名认证
+
+## 预签名 URL (分享文件)
+
+生成临时分享链接，有效期默认 24 小时：
+
+```bash
+# 生成预签名 URL (需要实现 API 端点)
+ENDPOINT="https://your-project.pages.dev"
+
+# 使用 presigned URL 直接下载文件
+curl -o file.txt "https://your-project.pages.dev/bucket/file.txt?X-Amz-Expires=86400&..."
+```
+
 ## 限制
 
 - 不支持分片上传 (Multipart Upload)
 - 单次请求最大 100MB (免费版) / 500MB (付费版)
 - 请求执行时间限制 30 秒
+- 预签名 URL 需要额外配置才能公开访问
 
 ## 常见问题 (Troubleshooting)
 

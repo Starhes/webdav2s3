@@ -17,6 +17,28 @@ interface PagesContext {
 export async function onRequest(context: PagesContext): Promise<Response> {
     const { request, env } = context;
 
+    const url = new URL(request.url);
+
+    // Debug endpoint - shows request details
+    if (url.pathname === '/_debug') {
+        const headers: Record<string, string> = {};
+        request.headers.forEach((value, key) => {
+            headers[key] = value;
+        });
+        return new Response(JSON.stringify({
+            method: request.method,
+            url: request.url,
+            pathname: url.pathname,
+            headers,
+        }, null, 2), {
+            status: 200,
+            headers: {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+            },
+        });
+    }
+
     // Handle CORS preflight
     if (request.method === 'OPTIONS') {
         return new Response(null, {
@@ -24,7 +46,8 @@ export async function onRequest(context: PagesContext): Promise<Response> {
             headers: {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Methods': 'GET, PUT, POST, DELETE, HEAD, OPTIONS',
-                'Access-Control-Allow-Headers': 'Authorization, Content-Type, x-amz-date, x-amz-content-sha256',
+                'Access-Control-Allow-Headers': 'Authorization, Content-Type, Content-Length, Host, x-amz-date, x-amz-content-sha256, x-amz-acl, x-amz-storage-class, x-amz-meta-*, x-amz-security-token, x-amz-user-agent, x-amz-expected-bucket-owner, Expect',
+                'Access-Control-Expose-Headers': 'ETag, x-amz-request-id, x-amz-version-id',
                 'Access-Control-Max-Age': '86400',
             },
         });
@@ -46,6 +69,24 @@ export async function onRequest(context: PagesContext): Promise<Response> {
         if (signatureResult.error?.includes('access key')) {
             return S3Errors.InvalidAccessKeyId();
         }
+
+        // Return debug info for signature mismatch diagnosis
+        if (signatureResult.debug) {
+            const debugResponse = new Response(JSON.stringify({
+                error: 'SignatureDoesNotMatch',
+                message: signatureResult.error,
+                debug: signatureResult.debug
+            }, null, 2), {
+                status: 403,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'x-amz-request-id': crypto.randomUUID(),
+                },
+            });
+            return debugResponse;
+        }
+
         return S3Errors.SignatureDoesNotMatch();
     }
 
